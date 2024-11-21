@@ -250,6 +250,8 @@ void partiallyUninitializedCopy(
   }
 }
 
+// SizeType     : 表示使用什么类型来表示元素的个数(默认为size_t).
+// AlwaysUseHeap: 表示不在stack上存放vector元素(总是使用heap).
 template <class SizeType, bool ShouldUseHeap, bool AlwaysUseHeap>
 struct IntegralSizePolicyBase {
   typedef SizeType InternalSizeType;
@@ -263,6 +265,7 @@ struct IntegralSizePolicyBase {
     return AlwaysUseHeap ? size_ : size_ & ~kClearMask;
   }
 
+  // 表示vector的元素是否放在heap上
   std::size_t isExtern() const { return AlwaysUseHeap || kExternMask & size_; }
 
   void setExtern(bool b) {
@@ -276,6 +279,7 @@ struct IntegralSizePolicyBase {
     }
   }
 
+  // 表示capacity的大小值是否存放在heap中
   std::size_t isHeapifiedCapacity() const {
     return AlwaysUseHeap || kCapacityMask & size_;
   }
@@ -329,6 +333,7 @@ struct IntegralSizePolicyBase {
 template <class SizeType, bool ShouldUseHeap, bool AlwaysUseHeap>
 struct IntegralSizePolicy;
 
+// AlwaysUseHeap 表示不再stack上存放vector元素
 template <class SizeType, bool AlwaysUseHeap>
 struct IntegralSizePolicy<SizeType, true, AlwaysUseHeap>
     : public IntegralSizePolicyBase<SizeType, true, AlwaysUseHeap> {
@@ -435,6 +440,14 @@ struct IntegralSizePolicy<SizeType, false, AlwaysUseHeap>
 template <class Value, std::size_t RequestedMaxInline, class InPolicy>
 struct small_vector_base {
   static_assert(!std::is_integral<InPolicy>::value, "legacy");
+
+  // 采用的默认policy为：policy_size_type<size_t> (即用size_t表示元素的个数)
+  // 和policy_in_situ_only<false>(允许使用heap)，它们是两种不同维度的policy。
+  // 目前看起来只能通过模版参数覆盖其中一种policy，例子：
+  // small_vector<int, 2, policy_in_situ_only<false>> ints;
+  // small_vector<int, 2, policy_size_type<int8_t>> ints;
+  // 
+  // 下面定义的Policy会同时继承policy_size_type和policy_in_situ_only。
   using Policy = small_vector_policy::merge<
       small_vector_policy::policy_size_type<size_t>,
       small_vector_policy::policy_in_situ_only<false>,
@@ -443,6 +456,7 @@ struct small_vector_base {
   /*
    * Make the real policy base classes.
    */
+  // 可以看到，仅当RequestedMaxInline显示设置为0，才会AlwaysUseHeap为true。
   typedef IntegralSizePolicy<
       typename Policy::size_type,
       !Policy::in_situ_only::value,
@@ -843,6 +857,8 @@ class small_vector
 
   template <class... Args>
   reference emplace_back(Args&&... args) {
+    // 注意：vector中的元素要么全部放到stack上，要么全部放到heap中。如果heap中只存放stack
+    // 存不下的elements，则无法保证和std::vector兼容，因为data()函数要求返回连续的内存。
     auto isize_ = this->getInternalSize();
     if (isize_ < MaxInline) {
       new (u.buffer() + isize_) value_type(std::forward<Args>(args)...);
@@ -855,6 +871,7 @@ class small_vector
     auto currentSize = size();
     auto currentCapacity = capacity();
     if (currentCapacity == currentSize) {
+      // 此时可能发生在stack指定的capacity刚好用完，需要将stack中的元素全部迁移到heap。
       // Any of args may be references into the vector.
       // When we are reallocating, we have to be careful to construct the new
       // element before modifying the data in the old buffer.
@@ -1347,9 +1364,16 @@ class small_vector
   static constexpr bool kShouldCopyWholeInlineStorageTrivial =
       std::is_trivially_copyable_v<Value> && kMayCopyWholeInlineStorage;
 
+  /*
+   * 这里的思路是：因为PointerType类型的pdata_和InlineStorageType类型的storage_放在了
+   * union结构中，如果InlineStorageType足够容纳一个指针类型和统计元素个数size的类型，那
+   * 就采用HeapPtrWithCapacity来记录heap元素的信息。否则，就采用HeapPtr。
+   */
   static bool constexpr kHasInlineCapacity = !BaseType::kAlwaysUseHeap &&
       sizeof(HeapPtrWithCapacity) < sizeof(InlineStorageType);
 
+  // InternalSizeType 表示用什么类型表示vector元素个数（比如size_t）
+  // kHeapifyCapacitySize 表示heap capacity的数值需要用多少个字节来保存。
   // This value should we multiple of word size.
   static size_t constexpr kHeapifyCapacitySize = sizeof(
       typename std::
@@ -1383,6 +1407,20 @@ class small_vector
       conditional<kHasInlineCapacity, HeapPtrWithCapacity, HeapPtr>::type
           PointerType;
 
+  // hasCapacity()仅对元素位于heap上时才有意义（stack的情况固定为MaxInline）。当它的
+  // 值为true时，表示heap的capacity由vector显式保存了，它要么保存在stack上，要么保存在
+  // heap中（见下面说明）。
+  // 
+  // 当采用heap时，不同情况下，获取capacity的方式不一样。它可以保存在stack中，也可以保存
+  // 在heap中，甚至还可以不用保存（此时内存分配器支持记录已分配内存的大小）。
+  // 1) 采用kHasInlineCapacity为true时，capacity的值总会存放到HeapPtrWithCapacity
+  //    的capacity_字段，且isHeapifiedCapacity()总为false
+  // 2) 否则，当使用kAlwaysUseHeap 或者 分配器本身不支持记录已分配内存大小时，总会将
+  //    capacity保存到heap中，此时isHeapifiedCapacity()总为true
+  // 3) 否则，仅当heap上分配的内存大于kHeapifyCapacityThreshold时，才在heap中保存
+  //    capacity的值，此时isHeapifiedCapacity()为true
+  // 4) 其他情况下，不显式保存capacity的值，而是通过malloc_usable_size函数来获取，此时
+  //    hasCapacity()和isHeapifiedCapacity()返回值都为false。
   bool hasCapacity() const {
     return kAlwaysHasCapacity || !kHeapifyCapacityThreshold ||
         this->isHeapifiedCapacity();

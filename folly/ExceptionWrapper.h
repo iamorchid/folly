@@ -166,6 +166,7 @@ class exception_wrapper final {
   template <
       class Ex,
       class Ex_ = std::decay_t<Ex>,
+      // TODO 理解这里的模版逻辑
       FOLLY_REQUIRES(
           Conjunction<IsStdException<Ex_>, IsRegularExceptionType<Ex_>>::value)>
   /* implicit */ exception_wrapper(Ex&& ex);

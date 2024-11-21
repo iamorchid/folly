@@ -706,6 +706,7 @@ class Core final : private ResultHolder<T>, public CoreBase {
 };
 
 inline Executor* CoreBase::getExecutor() const {
+  // TODO 这里的if判断多余的, KeepAliveOrDeferred内部会自己判断
   if (!executor_.isKeepAlive()) {
     return nullptr;
   }
@@ -713,6 +714,7 @@ inline Executor* CoreBase::getExecutor() const {
 }
 
 inline DeferredExecutor* CoreBase::getDeferredExecutor() const {
+  // KeepAliveOrDeferred executor_;
   if (!executor_.isDeferred()) {
     return {};
   }

@@ -151,6 +151,7 @@ void DeferredExecutor::addFrom(
         }
       };
 
+  // executor存在的话，则可以开始执行func（同步或者异步）
   if (state == State::HAS_EXECUTOR) {
     addWithInline(std::move(func));
     return;

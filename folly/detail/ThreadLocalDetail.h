@@ -213,8 +213,8 @@ struct ThreadEntryList;
 struct ThreadEntry {
   ElementWrapper* elements{nullptr};
   std::atomic<size_t> elementsCapacity{0};
-  ThreadEntryList* list{nullptr};
-  ThreadEntry* listNext{nullptr};
+  ThreadEntryList* list{nullptr}; // 所属list
+  ThreadEntry* listNext{nullptr}; // list中的下一个sibling
   StaticMetaBase* meta{nullptr};
   bool removed_{false};
   uint64_t tid_os{};
@@ -690,6 +690,7 @@ struct FOLLY_EXPORT StaticMeta final : StaticMetaBase {
     // cached fast path, leaving only one branch here and one indirection below.
     uint32_t id = ent->getOrInvalid();
     auto& cache = getLocalCache();
+    // 当kUseThreadLocal为true时，可以避免每次都调用getSlowReserveAndCache。
     if (FOLLY_UNLIKELY(cache.capacity <= id)) {
       getSlowReserveAndCache(ent, cache);
     }
@@ -709,6 +710,7 @@ struct FOLLY_EXPORT StaticMeta final : StaticMetaBase {
     auto& inst = instance();
     auto threadEntry = inst.threadEntry_();
     if (FOLLY_UNLIKELY(threadEntry->getElementsCapacity() <= id)) {
+      // 这里只会对当前线程进行操作（ThreadEntry通过pthrea的线程安全保存）
       inst.reserve(ent);
       id = ent->getOrInvalid();
     }

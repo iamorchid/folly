@@ -103,6 +103,7 @@ struct argResult {
 
 template <typename T, typename F>
 struct tryCallableResult {
+  // 下面的true表示F的接受的参数类型为Try类型
   typedef detail::argResult<true, F, Try<T>&&> Arg;
   typedef isFutureOrSemiFuture<typename Arg::Result> ReturnsFuture;
   typedef typename ReturnsFuture::Inner value_type;
@@ -110,6 +111,8 @@ struct tryCallableResult {
 
 template <typename T, typename F>
 struct tryExecutorCallableResult {
+  // 注意, 下面的Try<T>&&是右值引用, 不是万能引用 (要求T&&). 另外, Executor*
+  // 可以通过implicit的方式转成Executor::KeepAlive<>.
   typedef detail::argResult<true, F, Executor::KeepAlive<>&&, Try<T>&&> Arg;
   typedef isFutureOrSemiFuture<typename Arg::Result> ReturnsFuture;
   typedef typename ReturnsFuture::Inner value_type;
@@ -117,6 +120,7 @@ struct tryExecutorCallableResult {
 
 template <typename T, typename F>
 struct valueCallableResult {
+  // T&&: forward reference
   typedef detail::argResult<false, F, T&&> Arg;
   typedef isFutureOrSemiFuture<typename Arg::Result> ReturnsFuture;
   typedef typename ReturnsFuture::Inner value_type;

@@ -256,6 +256,9 @@ class Baton {
   };
 
   union {
+    // waiter_和futex_必须引用相同的内存, waiter_用于用户空间进行原子操作, 
+    // 而futex_则是基于address让内核协助进程的wait (在特定的值上等待) 以及
+    // wakeup. 至于何时应该wait以及wakeup, 则由用户进程自己决定.
     std::atomic<intptr_t> waiter_;
     struct _futex_wrapper futex_;
   };

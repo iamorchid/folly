@@ -177,6 +177,7 @@ void StaticMetaBase::cleanupThreadEntriesAndList(
     ThreadEntryList* threadEntryList) {
   --threadEntryList->count;
   if (threadEntryList->count) {
+    // 这里return之前不用清理threadEntry？
     return;
   }
 

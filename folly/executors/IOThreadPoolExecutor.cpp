@@ -134,6 +134,11 @@ void IOThreadPoolExecutor::add(Func func) {
   add(std::move(func), std::chrono::milliseconds(0));
 }
 
+// [star] IOThreadPoolExecutor::add
+// 这里add func后, 并不会立刻执行, 而基于eventBase先将这个封装成message并
+// 放入一个queue中, 然后给event fd触发一个异步event. 之后线程池中的线程会在
+// eventBase->loopForever()收到event通知, 从queue中提取具体的message并
+// 进行处理.
 void IOThreadPoolExecutor::add(
     Func func, std::chrono::milliseconds expiration, Func expireCallback) {
   ensureActiveThreads();
@@ -211,6 +216,8 @@ std::shared_ptr<ThreadPoolExecutor::Thread> IOThreadPoolExecutor::makeThread() {
   return std::make_shared<IOThread>();
 }
 
+// [star] IOThreadPoolExecutor::threadRun
+// 线程池中的线程创建后, 从这里开始执行, 参见: ThreadPoolExecutor::addThreads
 void IOThreadPoolExecutor::threadRun(ThreadPtr thread) {
   this->threadPoolHook_.registerThread();
 

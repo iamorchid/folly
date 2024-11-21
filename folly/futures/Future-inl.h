@@ -105,6 +105,20 @@ class CoreCallbackState {
   using DF = folly::decay_t<F>;
 
  public:
+  //
+  // Promise<T>&&: rvalue reference, F&&: universal reference
+  //
+  // 第二个noexcept作为运算符使用, 如果DF(std::declval<F&&>())抛出异常, 
+  // 则noexcept(DF(std::declval<F&&>()))返回false, 否则返回true.
+  //
+  // 其中, DF(std::declval<F&&>())对应的F的复制构造函数(或者右值复制构造函数), 
+  // 下面会基于这个对func_初始化, 所以需要确定它是否抛出异常. 
+  //
+  // std::declval<T>()返回的value类型为: T&&, 因此 std::declval<F&&>()
+  // 和std::declval<F>()等价, 因为F&& && <=> F&&.
+  // 
+  // 参考: ReferenceTemplateTest.cpp
+  //
   CoreCallbackState(Promise<T>&& promise, F&& func) noexcept(
       noexcept(DF(static_cast<F&&>(func))))
       : func_(static_cast<F&&>(func)),
@@ -165,12 +179,15 @@ class CoreCallbackState {
   Core<T>* core_ = nullptr; // Promise<T> is 2 ptrs but Core<T>* is 1 ptr wide
 };
 
+// f对应的是函数之外的其他callable, 比如函数对象、lambda等. 这种情况下, 
+// 初始化CoreCallbackState可能会抛出异常.
 template <typename T, typename F>
 auto makeCoreCallbackState(Promise<T>&& p, F&& f) noexcept(
     noexcept(CoreCallbackState<T, F>(std::move(p), static_cast<F&&>(f)))) {
   return CoreCallbackState<T, F>(std::move(p), static_cast<F&&>(f));
 }
 
+// f对应的函数
 template <typename T, typename R, typename... Args>
 auto makeCoreCallbackState(Promise<T>&& p, R (&f)(Args...)) noexcept {
   return CoreCallbackState<T, R (*)(Args...)>(std::move(p), &f);
@@ -388,6 +405,9 @@ FutureBase<T>::thenImplementation(
   using B = typename R::ReturnsFuture::Inner;
   auto fp = FutureBaseHelper::makePromiseContractForThen<B>(
       this->getCore(), this->getExecutor());
+
+  // 当前future有结果后, 会调用这里的callback, 将结果传给func。之后再将func的结果
+  // 作用于新建的promise变量p, 进而传导给和p关联的Core对象(和f关联的是同一个Core).
   this->setCallback_(
       [state = futures::detail::makeCoreCallbackState(
            std::move(fp.promise), static_cast<F&&>(func))](
@@ -403,6 +423,10 @@ FutureBase<T>::thenImplementation(
         }
       },
       allowInline);
+
+  // 上面的callback执行后, 结果不会主动返回到Future身上, 需要调用Future::value
+  // 等函数从关联的Core对象上去获取. 或者通过f.thenValue(...)往f关联的core上注册
+  // callback, 当f对应的promise fullfilled时候, 会触发这个callback.
   return std::move(fp.future);
 }
 
@@ -692,6 +716,8 @@ Future<T> SemiFuture<T>::via(Executor::KeepAlive<> executor) && {
     throw_exception<FutureNoExecutor>();
   }
 
+  // [question] 
+  // 这里为deferred executor设置executor有意义吗？具体目的是啥？
   if (auto deferredExecutor = this->getDeferredExecutor()) {
     deferredExecutor->setExecutor(executor.copy());
   }
@@ -1016,8 +1042,10 @@ template <class T>
 template <typename F>
 Future<typename futures::detail::valueCallableResult<T, F>::value_type>
 Future<T>::thenValue(F&& func) && {
+  // static_cast<F&&>(func): 即std::forward<F>(func), 转发引用类型
   auto lambdaFunc = [f = static_cast<F&&>(func)](
                         Executor::KeepAlive<>&&, folly::Try<T>&& t) mutable {
+    // 将结果封装为Try(Y), Y为F的返回值
     return futures::detail::wrapInvoke(std::move(t), static_cast<F&&>(f));
   };
   using W = decltype(lambdaFunc);

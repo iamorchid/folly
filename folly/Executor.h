@@ -177,12 +177,15 @@ class Executor {
 
     KeepAlive get_alias() const { return KeepAlive(storage_ | kAliasFlag); }
 
+    // 这里要求执行这个方法的KeepAlive必须为右值，因为这里会将其内部
+    // 状态转移到lambda对象的ka字段中。
     template <class KAF>
     void add(KAF&& f) && {
       static_assert(
           is_invocable<KAF, KeepAlive&&>::value,
           "Parameter to add must be void(KeepAlive&&)>");
       auto ex = get();
+      // virtual void add(Func) = 0;
       ex->add([ka = std::move(*this), f_2 = std::forward<KAF>(f)]() mutable {
         f_2(std::move(ka));
       });

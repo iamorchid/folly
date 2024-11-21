@@ -291,6 +291,7 @@ class RWSpinLock {
 
   // try to acquire an upgradable lock.
   bool try_lock_upgrade() {
+    // 这里返回的时bits_的old值
     int32_t value = bits_.fetch_or(UPGRADED, std::memory_order_acquire);
 
     // Note: when failed, we cannot flip the UPGRADED bit back,

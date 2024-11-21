@@ -134,6 +134,7 @@ class TryBase {
  *
  * To represent success or a captured exception, use Try<Unit>.
  */
+// TODO 这里有两个父类时，其构造函数是怎么调用的？？
 template <class T>
 class Try : detail::TryBase<T>,
             moveonly_::EnableCopyMove<
@@ -144,7 +145,12 @@ class Try : detail::TryBase<T>,
   using typename detail::TryBase<T>::Contains;
 
  public:
+  // 这里会继承TryBase的所有构造函数（而对于EnableCopyMove引入的基类，使用继承TryBase
+  // 的构造函数构造TryBase时，则调用默认构造函数）。
   using detail::TryBase<T>::TryBase;
+
+  // 而对于Try的copy构造函数、move构造函数、copy赋值、move赋值是否支持（使用时编译器自动
+  // 生成默认实现），则取决于EnableCopyMove引入的基类。
 
   /*
    * The value type for the Try
@@ -375,6 +381,8 @@ class Try : detail::TryBase<T>,
     if (!hasException()) {
       return false;
     }
+    // 这里没有指定函数with_exception的模版参数Ex的类型（即它为void），
+    // 后续处理时，会使用func的arg的类型作为期望的异常类型。
     return this->e_.with_exception(std::move(func));
   }
   template <class F>

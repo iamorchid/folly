@@ -142,6 +142,9 @@ template <class M>
 void Promise<T>::setValue(M&& v) {
   static_assert(!std::is_same<T, void>::value, "Use setValue() instead");
 
+  // 这里的Try怎么构建的？没看到对应的构造函数。。。
+  // Try中继承了TryBase的构造函数(通过using detail::TryBase<T>::TryBase)
+  // 参考: Try.h文件中的TryBase(in_place_t, Args&&... args)
   setTry(Try<T>(static_cast<M&&>(v)));
 }
 

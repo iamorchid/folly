@@ -63,10 +63,12 @@ void Baton::waitThread() {
 
   auto waitStart = std::chrono::steady_clock::now();
 
+  // 用户空间判断是否需要wait
   if (FOLLY_LIKELY(
           waiter == NO_WAITER &&
           waiter_.compare_exchange_strong(waiter, THREAD_WAITING))) {
     do {
+      // Linux下会通过syscall陷入内核, 只要futex一直是THREAD_WAITING就等到
       folly::detail::MemoryIdler::futexWait(
           futex_.futex, uint32_t(THREAD_WAITING));
       waiter = waiter_.load(std::memory_order_acquire);
@@ -126,6 +128,7 @@ void Baton::postThread() {
   if (!waiter_.compare_exchange_strong(expected, POSTED)) {
     return;
   }
+  // POSTED更新成功, 则唤醒潜在的waiter
   futexWake(futex, 1);
 }
 

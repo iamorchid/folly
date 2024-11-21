@@ -224,6 +224,7 @@ template <class Ex, class This, class Fn>
 inline bool exception_wrapper::with_exception_(This& this_, Fn fn_) {
   using from_fn = with_exception_from_fn_;
   using from_ex = with_exception_from_ex_;
+  // 当调用with_exception(fn)没有指定Ex类型时，这里会使用fn的参数类型
   using from = conditional_t<std::is_void<Ex>::value, from_fn, from_ex>;
   using type = typename from::template apply<Ex, Fn>;
   return with_exception_(this_, std::move(fn_), tag<type>);
@@ -249,6 +250,7 @@ inline bool exception_wrapper::with_exception(Fn fn) {
 }
 template <class Ex, class Fn>
 inline bool exception_wrapper::with_exception(Fn fn) const {
+  // 这里显示指定了第一个模版类型参数，另外两个类型参数自动推导
   return with_exception_<Ex const>(*this, std::move(fn));
 }
 
