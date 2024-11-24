@@ -98,6 +98,8 @@ struct argResult {
   using ArgList = ArgType<Args...>;
   using Result = invoke_result_t<F, Args...>;
   using ArgsSize = index_constant<sizeof...(Args)>;
+
+  // isTry()表示F是否接受Try类型的参数
   static constexpr bool isTry() { return isTry_; }
 };
 

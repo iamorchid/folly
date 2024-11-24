@@ -689,6 +689,8 @@ template <typename...>
 struct Conjunction : std::true_type {};
 template <typename T>
 struct Conjunction<T> : T {};
+
+// 这里的T都是继承std::true_type或者std::false_type
 template <typename T, typename... TList>
 struct Conjunction<T, TList...>
     : std::conditional<T::value, Conjunction<TList...>, T>::type {};

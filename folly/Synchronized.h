@@ -1271,12 +1271,16 @@ class ScopedUnlocker {
  * The LockPolicy parameter controls whether or not the lock is acquired in
  * exclusive or shared mode.
  */
+// LockPolicy包含两部分信息: SynchronizedMutexLevel以及SynchronizedMutexMethod
+// 1) mutex level : {Unique, Shared, Upgrade}
+// 2) mutex method: { Lock, TryLock }
 template <class SynchronizedType, class LockPolicy>
 class LockedPtr {
  private:
   constexpr static bool AllowsConcurrentAccess =
       LockPolicy::level != detail::SynchronizedMutexLevel::Unique;
 
+  // 决定operator ->() 以及 operator *()使用的data type是否采用const
   using CDataType = // the DataType with the appropriate const-qualification
       detail::SynchronizedDataType<SynchronizedType, AllowsConcurrentAccess>;
 
@@ -1291,8 +1295,14 @@ class LockedPtr {
 
  public:
   using DataType = typename SynchronizedType::DataType;
+
+  // folly::SharedMutex 或者 std::mutex
   using MutexType = typename SynchronizedType::MutexType;
+
+  // struct Synchronized<T, folly::SharedMutex>
   using Synchronized = typename std::remove_const<SynchronizedType>::type;
+
+  // 对应std::unique_lock<MutexType>, std::shared_lock<MutexType> 或者 upgrade_lock<MutexType>
   using LockType = detail::SynchronizedLockType<LockPolicy::level, MutexType>;
 
   /**
@@ -1558,6 +1568,7 @@ class LockedPtr {
 
   void releaseLock() noexcept {
     DCHECK(lock_.owns_lock());
+    // 之前的lock析构后, 会自动释放mutex锁
     lock_ = {};
   }
   void reacquireLock(SynchronizedType* parent) {

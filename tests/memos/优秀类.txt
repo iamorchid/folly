@@ -1,0 +1,11 @@
+1. FunctionScheduler
+a) std::unique_lock<std::mutex> 和 std::condition_variable结合
+b) 基于std::vector构建和使用heap
+
+2. StringPiece()
+using StringPiece = Range<const char*>
+支持string的slice操作, 不会进行字符串复制
+
+3. Synchronized
+a) 不同的lock类型使用(std:unique_lock/std::shared_lock)
+b) Synchronized如何简化对象的保护

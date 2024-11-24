@@ -87,6 +87,9 @@
     "random": "cpp",
     "algorithm": "cpp",
     "__memory": "cpp",
-    "filesystem": "cpp"
+    "filesystem": "cpp",
+    "any": "cpp",
+    "iterator": "cpp",
+    "regex": "cpp"
   }
 }

@@ -108,15 +108,15 @@ class CoreCallbackState {
   //
   // Promise<T>&&: rvalue reference, F&&: universal reference
   //
-  // 第二个noexcept作为运算符使用, 如果DF(std::declval<F&&>())抛出异常, 
+  // 第二个noexcept作为运算符使用, 如果DF(std::declval<F&&>())抛出异常,
   // 则noexcept(DF(std::declval<F&&>()))返回false, 否则返回true.
   //
-  // 其中, DF(std::declval<F&&>())对应的F的复制构造函数(或者右值复制构造函数), 
-  // 下面会基于这个对func_初始化, 所以需要确定它是否抛出异常. 
+  // 其中, DF(std::declval<F&&>())对应的F的复制构造函数(或者右值复制构造函数),
+  // 下面会基于这个对func_初始化, 所以需要确定它是否抛出异常.
   //
   // std::declval<T>()返回的value类型为: T&&, 因此 std::declval<F&&>()
   // 和std::declval<F>()等价, 因为F&& && <=> F&&.
-  // 
+  //
   // 参考: ReferenceTemplateTest.cpp
   //
   CoreCallbackState(Promise<T>&& promise, F&& func) noexcept(
@@ -179,7 +179,7 @@ class CoreCallbackState {
   Core<T>* core_ = nullptr; // Promise<T> is 2 ptrs but Core<T>* is 1 ptr wide
 };
 
-// f对应的是函数之外的其他callable, 比如函数对象、lambda等. 这种情况下, 
+// f对应的是函数之外的其他callable, 比如函数对象、lambda等. 这种情况下,
 // 初始化CoreCallbackState可能会抛出异常.
 template <typename T, typename F>
 auto makeCoreCallbackState(Promise<T>&& p, F&& f) noexcept(
@@ -390,8 +390,6 @@ class FutureBaseHelper {
   }
 };
 
-// then
-
 // Variant: returns a value
 // e.g. f.then([](Try<T>&& t){ return t.value(); });
 template <class T>
@@ -403,8 +401,10 @@ FutureBase<T>::thenImplementation(
     F&& func, R, futures::detail::InlineContinuation allowInline) {
   static_assert(R::Arg::ArgsSize::value == 2, "Then must take two arguments");
   using B = typename R::ReturnsFuture::Inner;
+
+  // 每个promise都有自己的core_实例
   auto fp = FutureBaseHelper::makePromiseContractForThen<B>(
-      this->getCore(), this->getExecutor());
+      this->getCore() /* 从已有core实例复制一些参数 */, this->getExecutor());
 
   // 当前future有结果后, 会调用这里的callback, 将结果传给func。之后再将func的结果
   // 作用于新建的promise变量p, 进而传导给和p关联的Core对象(和f关联的是同一个Core).
@@ -412,11 +412,17 @@ FutureBase<T>::thenImplementation(
       [state = futures::detail::makeCoreCallbackState(
            std::move(fp.promise), static_cast<F&&>(func))](
           Executor::KeepAlive<>&& ka, Try<T>&& t) mutable {
+        // 目前看起来, R固定为tryExecutorCallableResult, 即R::Arg::isTry()总为true
         if (!R::Arg::isTry() && t.hasException()) {
+          // 如果func不接受Try<T>作为参数, 则它无法处理Try<T>中的异常. 此时, 会跳过
+          // func的执行, 直接将异常设置到fp关联的core实例上.
           state.setException(std::move(ka), std::move(t.exception()));
         } else {
           auto propagateKA = ka.copy();
+          // state.setTry会执行内部promise的setTry方法, 并传递给关联的core_实例
           state.setTry(std::move(propagateKA), makeTryWith([&] {
+                         // 这里会执行CoreCallbackState的invoke或者tryInvoke方法, 
+                         // 它们会进一步执行到func并发返回func的结果
                          return detail_msvc_15_7_workaround::invoke(
                              R{}, state, std::move(ka), std::move(t));
                        }));
@@ -424,7 +430,7 @@ FutureBase<T>::thenImplementation(
       },
       allowInline);
 
-  // 上面的callback执行后, 结果不会主动返回到Future身上, 需要调用Future::value
+  // 上面的callback执行后, 结果不会主动返回到Future身上, 需要调用Future::value()
   // 等函数从关联的Core对象上去获取. 或者通过f.thenValue(...)往f关联的core上注册
   // callback, 当f对应的promise fullfilled时候, 会触发这个callback.
   return std::move(fp.future);
@@ -467,13 +473,14 @@ FutureBase<T>::thenImplementation(
         } else {
           // Ensure that if function returned a SemiFuture we correctly chain
           // potential deferral.
+          // tf2类型为: Try<Future<T>> 或者 Try<SemiFuture<T>>
           auto tf2 = detail_msvc_15_7_workaround::tryInvoke(
               R{}, state, ka.copy(), std::move(t));
           if (tf2.hasException()) {
             state.setException(std::move(ka), std::move(tf2.exception()));
           } else {
             auto statePromise = state.stealPromise();
-            auto tf3 = chainExecutor(std::move(ka), *std::move(tf2));
+            auto tf3 /* Future<T> */ = chainExecutor(std::move(ka), *std::move(tf2));
             std::exchange(statePromise.core_, nullptr)
                 ->setProxy(std::exchange(tf3.core_, nullptr));
           }
@@ -716,7 +723,7 @@ Future<T> SemiFuture<T>::via(Executor::KeepAlive<> executor) && {
     throw_exception<FutureNoExecutor>();
   }
 
-  // [question] 
+  // [question]
   // 这里为deferred executor设置executor有意义吗？具体目的是啥？
   if (auto deferredExecutor = this->getDeferredExecutor()) {
     deferredExecutor->setExecutor(executor.copy());
@@ -983,6 +990,8 @@ Future<T>::thenTry(F&& func) && {
   auto lambdaFunc = [f = static_cast<F&&>(func)](
                         folly::Executor::KeepAlive<>&&,
                         folly::Try<T>&& t) mutable {
+    // 函数func接受Try<T>作为参数, 返回值并不要求为Try类型. thenImplementation实现中, 
+    // 将结果传给新建的promise时, 会统一通过makeTryWith将返回值转成Try类型.
     return static_cast<F&&>(f)(std::move(t));
   };
   using W = decltype(lambdaFunc);
@@ -1038,6 +1047,7 @@ Future<T>::thenExTryInline(F&& func) && {
   return this->thenImplementation(static_cast<W&&>(lambdaFunc), R{}, policy);
 }
 
+// 注意和Future<T>::thenTry的区别
 template <class T>
 template <typename F>
 Future<typename futures::detail::valueCallableResult<T, F>::value_type>
@@ -1045,10 +1055,13 @@ Future<T>::thenValue(F&& func) && {
   // static_cast<F&&>(func): 即std::forward<F>(func), 转发引用类型
   auto lambdaFunc = [f = static_cast<F&&>(func)](
                         Executor::KeepAlive<>&&, folly::Try<T>&& t) mutable {
-    // 将结果封装为Try(Y), Y为F的返回值
+    // 将结果封装为Try(Y), Y为F的返回值 (如果f的返回值是Try或者Future, 则原样返回)
     return futures::detail::wrapInvoke(std::move(t), static_cast<F&&>(f));
   };
+
+  // W: wrapper, 即上面的lambda是对func的封装 (参数和返回值的封装)
   using W = decltype(lambdaFunc);
+
   using R = futures::detail::tryExecutorCallableResult<T, W>;
   auto policy = futures::detail::InlineContinuation::forbid;
   return this->thenImplementation(static_cast<W&&>(lambdaFunc), R{}, policy);

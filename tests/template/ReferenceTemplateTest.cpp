@@ -1,8 +1,8 @@
 /*
- * 这个测试需要在Linux环境下的gcc进行 (macos上不符合预期): 
- * 1) gcc -std=c++17 -lstdc++ -DTEST_LVALUE -DTEST_1 -DTEST_2 TemplateTest.cpp 
- * 2) gcc -std=c++17 -lstdc++ -DTEST_LVALUE TemplateTest.cpp 
- * 3) gcc -std=c++17 -lstdc++ -DTEST_RVALUE TemplateTest.cpp
+ * 测试说明:
+ * 1) gcc -std=c++17 -lstdc++ -DTEST_LVALUE -DTEST_1 ReferenceTemplateTest.cpp 
+ * 2) gcc -std=c++17 -lstdc++ -DTEST_LVALUE ReferenceTemplateTest.cpp 
+ * 3) gcc -std=c++17 -lstdc++ -DTEST_RVALUE ReferenceTemplateTest.cpp
  * 
  * references:
  * https://isocpp.org/blog/2012/11/universal-references-in-c11-scott-meyers
@@ -28,8 +28,20 @@ public:
 namespace chuzhi {
 
 template <class _Tp>
+constexpr _Tp&& forward(typename remove_reference<_Tp>::type& __t) noexcept {
+  // TODO 为何这里的assert无法生效 ??
+  static_assert(!is_lvalue_reference<_Tp>::value, "TODO");
+  static_assert(is_lvalue_reference<_Tp>::value, "TODO");
+  
+  return static_cast<_Tp&&>(__t);
+}
+
+template <class _Tp>
 constexpr _Tp&& forward(typename remove_reference<_Tp>::type&& __t) noexcept {
+  // TODO 为何这里的assert无法生效 ??
   static_assert(!is_lvalue_reference<_Tp>::value, "cannot forward an rvalue as an lvalue");
+  static_assert(is_lvalue_reference<_Tp>::value, "TODO");
+  
   return static_cast<_Tp&&>(__t);
 }
 
@@ -41,13 +53,13 @@ template <typename T>
 void test(T&& s) {
   using DS = std::decay_t<T>;
 
-    if constexpr (std::is_same_v<T, Student&>) {
-        std::cout << "T type: Student&" << std::endl;
-    } else if constexpr (std::is_same_v<T, Student&&>) {
-        std::cout << "T type: Student" << std::endl;
-    } else if constexpr (std::is_same_v<T, Student>) {
-        std::cout << "T type: Student" << std::endl;
-    }
+  if constexpr (std::is_same_v<T, Student&>) {
+      std::cout << "T type: Student&" << std::endl;
+  } else if constexpr (std::is_same_v<T, Student&&>) {
+      std::cout << "T type: Student&&" << std::endl;
+  } else if constexpr (std::is_same_v<T, Student>) {
+      std::cout << "T type: Student" << std::endl;
+  }
 
   std::cout << "left value : " << std::is_lvalue_reference<T>::value << std::endl;
   std::cout << "right value: " << std::is_rvalue_reference<T>::value << std::endl;
@@ -58,31 +70,26 @@ void test(T&& s) {
   std::cout << noexcept(DS(s)) << std::endl; 
 
   // 完美转发, 虽然s是左值, 但forward会基于T, 将s转成对应左值或者右值
-  std::cout << noexcept(DS(std::forward<T>(s))) << std::endl; 
+  std::cout << noexcept(DS(chuzhi::forward<T>(s))) << std::endl; 
 
 #if defined(TEST_1) || defined(TEST_RVALUE)
   // 对于T是左值引用类型是, 传入右值, 这里会触发static_assert (不能将右值转成左值)
-  std::cout << noexcept(DS(std::forward<T>(Student()))) << std::endl;
+  // TODO 但看起来static_assert没有生效
+  std::cout << "forward rvalue to T: " << noexcept(DS(chuzhi::forward<T>(Student()))) << std::endl;
 #endif
 
   // std::forward有支持左值或者右值参数的不同模版
-  std::cout << noexcept(DS(std::forward<T>(std::declval<T>()))) << std::endl; 
-
-#if defined(TEST_2) || defined(TEST_RVALUE)
-  // T为左值引用类型时, T&& 对应的还是左值引用类型, 此时chuzhi::forward参数不匹配
-  // std::declval<T>(): The return type is T&& unless T is (possibly cv-qualified) void, in which case the return type is T.
-  std::cout << noexcept(DS(chuzhi::forward<T>(std::declval<T>()))) << std::endl;
-#endif
+  std::cout << noexcept(DS(chuzhi::forward<T>(std::declval<T>()))) << std::endl; 
   
   std::cout << noexcept(DS(std::declval<T>())) << std::endl;
   std::cout << noexcept(DS(std::declval<T&&>())) << std::endl;
 
   // static_cast<T&&>(s)和完美转发是一样的效果, 即保持传入参数的原始类型
   std::cout << noexcept(DS(static_cast<T&&>(s))) << std::endl;
-
-  std::cout << noexcept(DS(static_cast<T>(s))) << std::endl;
-
   DS s1(static_cast<T&&>(s));
+
+  // 对于T, 它既不是左值引用, 也不是右值引用. 参数匹配时, 会匹配左值引用参数的签名
+  std::cout << noexcept(DS(static_cast<T>(s))) << std::endl;
   DS s2(static_cast<T>(s));
 }
 
