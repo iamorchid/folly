@@ -455,6 +455,8 @@ void FunctionScheduler::run() {
     if (sleepTime <= steady_clock::duration::zero()) {
       // We need to run this function now
       runOneFunction(lock, now);
+
+      // cancel function的调用方可能处于等待中, 这里将其唤醒
       runningCondvar_.notify_all();
     } else {
       runningCondvar_.wait_for(lock, sleepTime);

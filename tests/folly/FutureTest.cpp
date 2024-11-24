@@ -2,6 +2,7 @@
 #include <folly/executors/ThreadedExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/small_vector.h>
+#include "folly/Conv.h"
 
 #include <boost/thread.hpp>
 #include <iostream>
@@ -62,9 +63,24 @@ void checkFirstArg(F&& f) {
   std::cout << std::is_same_v<typename futures::detail::valueCallableResult<int, F>::FirstArg, int&&> << std::endl;
 }
 
+// void runFunction(std::function<void()> f) {
+//   f();
+// }
+
+void runFunction(folly::Function<void()>&& f) {
+  f();
+}
+
 int main() {
-  checkFirstArg(foo);
-  testFuture();
-  testSmallVector();
+  // checkFirstArg(foo);
+  // testFuture();
+  // testSmallVector();
+
+  std::unique_ptr<std::string> ptr(new string("mytest"));
+  folly::Function<void()> func = [p = std::move(ptr)]() {
+    std::cout << *p << std::endl;
+  };
+  runFunction(std::move(func));
+
   return 0;
 }

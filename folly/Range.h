@@ -424,6 +424,12 @@ class Range {
    *
    * @methodset Range
    */
+  //
+  // detail::IsUnsignedCharPointer<T>::const_type限定了ByteRange才适合这个构造函数. 上面
+  // 的3个构造函数适用于StringPiece接受std::string.
+  //
+  // decltype(expr1, expr2, ..., exprN)返回的是exprN的类型(虽然通常情况下, decltype只
+  // 处理一个表达式). 这里之所以这样操作, 是为了保证所有的表达式都是合法的。
   template <
       class Container,
       class T = Iter,
